@@ -1,0 +1,9 @@
+import {NextResponse} from 'next/server';
+import {createClient} from '@supabase/supabase-js';
+
+function db(){const url=process.env.SUPABASE_URL;const key=process.env.SUPABASE_SERVICE_ROLE_KEY;if(!url||!key)throw Error('Supabase is not configured.');return createClient(url,key)}
+function authorised(req:Request){const expected=process.env.RACE_CONTROL_KEY;return !!expected && req.headers.get('x-race-control-key')===expected}
+
+export async function GET(req:Request){try{if(!authorised(req))return NextResponse.json({error:'Invalid Race Control key.'},{status:401});const {data,error}=await db().from('event_entries').select('id,rider_id,first_name,last_name,race_number,club,ski_make,ski_model,classes,status,checked_in,scrutineering_status,payment_status,event_name,event_date,venue').order('race_number');if(error)throw error;return NextResponse.json({entries:data||[]})}catch(e:any){return NextResponse.json({error:e.message||'Could not load entries.'},{status:500})}}
+
+export async function PATCH(req:Request){try{if(!authorised(req))return NextResponse.json({error:'Invalid Race Control key.'},{status:401});const b=await req.json();if(!b.id)return NextResponse.json({error:'Entry id required.'},{status:400});const patch:any={};if(typeof b.checked_in==='boolean')patch.checked_in=b.checked_in;if(['pending','passed','failed'].includes(b.scrutineering_status))patch.scrutineering_status=b.scrutineering_status;if(['unpaid','paid','waived'].includes(b.payment_status))patch.payment_status=b.payment_status;patch.status=(patch.checked_in===true||b.checked_in===true)&&b.scrutineering_status==='passed'&&['paid','waived'].includes(b.payment_status)?'cleared':'entered';const {data,error}=await db().from('event_entries').update(patch).eq('id',b.id).select().single();if(error)throw error;return NextResponse.json({ok:true,entry:data})}catch(e:any){return NextResponse.json({error:e.message||'Could not update entry.'},{status:500})}}
